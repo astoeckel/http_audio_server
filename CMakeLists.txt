@@ -21,14 +21,12 @@ project(http_audio_server)
 # Add the local "cmake" directory to the search path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_SOURCE_DIR}/cmake)
 
-# Automatically download and compile Google-Test and the JSON library
-include(gtest_external)
-include(json_external)
-
 # Search for libopus and libogg
 find_package(PkgConfig)
 pkg_check_modules(OPUS opus REQUIRED)
-pkg_check_modules(OGG ogg REQUIRED)
+
+# Include external libraries
+add_subdirectory(lib/libwebm)
 
 # Enable C++14 support
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++14")
@@ -54,9 +52,6 @@ endif()
 # Add the top-level directory as include directory
 include_directories(
 	${CMAKE_SOURCE_DIR}
-	PRIVATE
-		${OPUS_INCLUDE_DIRS}
-		${OGG_INCLUDE_DIRS}
 )
 
 # Compile the library itself
@@ -64,11 +59,18 @@ add_library(http_audio_server_core
 	http_audio_server/decoder
 	http_audio_server/encoder
 	http_audio_server/process
+	http_audio_server/server
+	lib/mongoose
+)
+target_include_directories(http_audio_server_core
+	PRIVATE
+		${OPUS_INCLUDE_DIRS}
+		lib/libwebm/
 )
 target_link_libraries(http_audio_server_core
 	pthread
+	mkvmuxer
 	${OPUS_LIBRARIES}
-	${OGG_LIBRARIES}
 )
 
 
@@ -76,5 +78,7 @@ target_link_libraries(http_audio_server_core
 add_executable(http_audio_server
 	http_audio_server/main
 )
-target_link_libraries(http_audio_server http_audio_server_core)
+target_link_libraries(http_audio_server
+	http_audio_server_core
+)
 

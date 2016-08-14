@@ -50,7 +50,7 @@ private:
 	std::unique_ptr<DecoderImpl> m_impl;
 
 public:
-	Decoder(std::unique_ptr<std::istream> input, float offs = 0.0,
+	Decoder(const std::string &filename, float offs = 0.0,
 	        const AudioFormat &output_fmt = AudioFormat());
 
 	~Decoder();

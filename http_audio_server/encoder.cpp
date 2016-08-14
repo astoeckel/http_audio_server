@@ -19,12 +19,42 @@
 #include <iostream>
 #include <vector>
 
-#include <ogg/ogg.h>
 #include <opus/opus.h>
+
+#include <mkvmuxer/mkvmuxer.h>
 
 #include <http_audio_server/encoder.hpp>
 
 namespace http_audio_server {
+
+using namespace mkvmuxer;
+
+class BufferMkvWriter : public IMkvWriter {
+private:
+	std::vector<uint8_t> m_buf;
+	size_t m_bytes_written = 0;
+
+public:
+	int32 Write(const void *buf, uint32 len) override
+	{
+		m_buf.insert(m_buf.end(), (uint8_t *)buf, (uint8_t *)buf + len);
+		m_bytes_written += len;
+		return 0;
+	}
+
+	int64 Position() const override { return m_bytes_written; }
+	int32 Position(int64) override { return -1; }
+	bool Seekable() const override { return false; }
+	void ElementStartNotify(uint64, int64) override {}
+	BufferMkvWriter() {}
+	~BufferMkvWriter() override{};
+
+	void dump(std::ostream &os)
+	{
+		os.write((char *)&m_buf[0], m_buf.size());
+		m_buf.clear();
+	}
+};
 
 class EncoderImpl {
 private:
@@ -35,17 +65,20 @@ private:
 	size_t m_frame_size;
 	std::vector<float> m_buf;
 	size_t m_buf_ptr;
-
-	ogg_stream_state m_ogg_stream;
-	size_t m_packet_no = 0;
 	size_t m_granule = 0;
+	bool m_done = false;
+
+	BufferMkvWriter m_mkv_writer;
+	Segment m_mkv_segment;
+	uint64_t m_mkv_track_id;
+	AudioTrack *m_mkv_audio_track;
 
 	int m_enc_error;
 	OpusEncoder *m_enc = nullptr;
 
 #pragma pack(push)
 #pragma pack(1)
-	struct OpusOggHead {
+	struct OpusMkvCodecPrivate {
 		uint8_t head[8] = {0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64};
 		uint8_t version = 1;
 		uint8_t channel_count;
@@ -54,59 +87,12 @@ private:
 		uint16_t gain = 0;
 		uint8_t mapping_family = 0;
 
-		OpusOggHead(uint8_t channel_count, uint32_t sample_rate)
+		OpusMkvCodecPrivate(uint8_t channel_count, uint32_t sample_rate)
 		    : channel_count(channel_count), sample_rate(sample_rate)
 		{
 		}
 	};
-
-	struct OpusOggTags {
-		uint8_t head[8] = {0x4f, 0x70, 0x75, 0x73, 0x54, 0x61, 0x67, 0x73};
-		uint32_t vendor_string_length = 0;
-		uint32_t user_comment_list_length = 0;
-	};
 #pragma pack(pop)
-
-	void write_page(std::ostream &os, bool flush = false)
-	{
-		bool has_page = false;
-		ogg_page pg;
-		if (flush) {
-			has_page = ogg_stream_flush(&m_ogg_stream, &pg) != 0;
-		}
-		else {
-			has_page = ogg_stream_pageout(&m_ogg_stream, &pg) != 0;
-		}
-		if (has_page) {
-			os.write((char *)(pg.header), pg.header_len);
-			os.write((char *)(pg.body), pg.body_len);
-		}
-	}
-
-	void write_packet(std::ostream &os, const ogg_packet &pck,
-	                  bool flush = false)
-	{
-		ogg_stream_packetin(&m_ogg_stream, const_cast<ogg_packet *>(&pck));
-		write_page(os, flush);
-	}
-
-	void write_header(std::ostream &os) {
-		// Write the first header packet
-		{
-			OpusOggHead head(m_n_channels, m_rate);
-			write_packet(os, ogg_packet{(uint8_t *)(&head), sizeof(head), 1,
-			                            0, 0, int64_t(m_packet_no++)},
-			             true);
-		}
-
-		// Write the metadata packet
-		{
-			OpusOggTags tags;
-			write_packet(os, ogg_packet{(uint8_t *)(&tags), sizeof(tags), 0,
-			                            0, 0, int64_t(m_packet_no++)},
-			             true);
-		}
-	}
 
 public:
 	EncoderImpl(size_t rate, size_t n_channels)
@@ -116,36 +102,34 @@ public:
 	      m_buf(m_frame_size * m_n_channels),
 	      m_buf_ptr(0)
 	{
-		// Create the ogg stream
-		ogg_stream_init(&m_ogg_stream, 0);
+		// Initialize the mkv segment
+		m_mkv_segment.Init(&m_mkv_writer);
+		m_mkv_segment.set_mode(Segment::kLive);
+
+		// Add a single audio track
+		m_mkv_track_id = m_mkv_segment.AddAudioTrack(rate, n_channels, 0);
+		m_mkv_audio_track = static_cast<AudioTrack *>(
+		    m_mkv_segment.GetTrackByNumber(m_mkv_track_id));
+		m_mkv_audio_track->set_codec_id(Tracks::kOpusCodecId);
+		m_mkv_audio_track->set_bit_depth(16);
+
+		// Write the Opus private data
+		OpusMkvCodecPrivate private_data(n_channels, rate);
+		m_mkv_audio_track->SetCodecPrivate((uint8_t *)&private_data,
+		                                   sizeof(OpusMkvCodecPrivate));
 
 		// Initialize the encoder
 		m_enc = opus_encoder_create(rate, n_channels, OPUS_APPLICATION_AUDIO,
 		                            &m_enc_error);
 	}
 
-	~EncoderImpl()
-	{
-		// Destroy the opus encoder instance
-		if (m_enc != nullptr) {
-			opus_encoder_destroy(m_enc);
-			m_enc = nullptr;
-		}
-
-		// Destroy the ogg stream
-		ogg_stream_clear(&m_ogg_stream);
-	}
-
 	void encode(float *pcm, size_t n_samples, size_t bitrate, std::ostream &os,
 	            bool flush)
 	{
-		// Write the header packets if this has not been done yet
-		if (m_packet_no == 0) {
-			write_header(os);
+		// Do nothing if we're already done!
+		if (m_done) {
+			return;
 		}
-
-		// Advance the granule
-		m_granule += n_samples;
 
 		// Encode single packets
 		uint8_t buf[BUF_SIZE];
@@ -162,7 +146,8 @@ public:
 				std::fill(m_buf.begin() + m_buf_ptr, m_buf.end(), 0.0);
 				n_samples = 0;
 				m_buf_ptr = m_buf.size();
-			} else {
+			}
+			else {
 				// Advance the buffer pointer and reduce the number of samples
 				// which still have to be processed
 				m_buf_ptr += n_floats_in;
@@ -171,27 +156,29 @@ public:
 			}
 
 			// If enough data for a frame has been gathered encode a frame and
-			// write it into the ogg stream-
+			// write it into the mkv/webm stream
 			if (m_buf_ptr == m_buf.size()) {
 				opus_encoder_ctl(m_enc, OPUS_SET_BITRATE(bitrate));
 				int size = opus_encode_float(m_enc, &m_buf[0], m_frame_size,
 				                             buf, BUF_SIZE);
 				if (size > 0) {
-					write_packet(os,
-					             ogg_packet{(uint8_t *)(&buf[0]), size, 0,
-					                        at_end ? 1 : 0, int64_t(m_granule),
-					                        int64_t(m_packet_no++)}, at_end);
+					uint64_t ts = (m_granule * 1000 * 1000 * 1000) / m_rate;
+					m_mkv_segment.AddFrame(buf, size, m_mkv_track_id, ts, true);
 				}
 				m_buf_ptr = 0;
+				m_granule += m_frame_size;
 			}
 		} while (n_samples > 0);
 
 		// If the stream was flushed, reset the state
 		if (flush) {
-			ogg_stream_reset(&m_ogg_stream);
-			m_packet_no = 0;
+			m_mkv_segment.Finalize();
 			m_granule = 0;
+			m_done = true;
 		}
+
+		// Dump all buffered data into the given output stream
+		m_mkv_writer.dump(os);
 	}
 };
 

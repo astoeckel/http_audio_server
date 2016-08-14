@@ -35,16 +35,8 @@ namespace http_audio_server {
 
 class DecoderImpl {
 private:
-	static constexpr ssize_t BUF_SIZE_IN = 1 << 12;              // 4K
-	static constexpr ssize_t BUF_SIZE_OUT = 1 << 18;             // 256K
-	static constexpr ssize_t TAR_QUEUE_SIZE = BUF_SIZE_OUT * 8;  // 2M
-
 	std::unique_ptr<std::istream> m_input;
 	Process m_process;
-	std::mutex m_mtx;
-	std::deque<uint8_t> m_queue;
-	std::atomic<bool> m_done;
-	std::thread m_read_thread;
 	std::stringstream m_msgs;
 	std::thread m_msg_thread;
 
@@ -87,7 +79,8 @@ private:
 		return res + (output_fmt.little_endian ? "le" : "be");
 	}
 
-	static std::vector<std::string> ffmpeg_args(float offs,
+	static std::vector<std::string> ffmpeg_args(const std::string &filename,
+	                                            float offs,
 	                                            const AudioFormat &output_fmt)
 	{
 		std::vector<std::string> res;
@@ -97,7 +90,7 @@ private:
 		}
 
 		res.emplace_back("-i");
-		res.emplace_back("-");
+		res.emplace_back(filename);
 
 		res.emplace_back("-ac");
 		res.emplace_back(std::to_string(output_fmt.n_channels));
@@ -112,58 +105,35 @@ private:
 		return res;
 	}
 
-	static void read_thread(std::istream &is, std::mutex &mtx,
-	                        std::deque<uint8_t> &queue, std::atomic<bool> &done)
-	{
-		uint8_t buf[BUF_SIZE_OUT];
-		while (is.good()) {
-			is.read((char *)buf, BUF_SIZE_OUT);
-			{
-				std::lock_guard<std::mutex> lock(mtx);
-				queue.insert(queue.end(), buf, buf + is.gcount());
-			}
-		}
-		done = true;
-	}
-
 public:
-	DecoderImpl(std::unique_ptr<std::istream> input, float offs,
+	DecoderImpl(const std::string &filename, float offs,
 	            const AudioFormat &output_fmt)
-	    : m_input(std::move(input)),
-	      m_process("ffmpeg", ffmpeg_args(offs, output_fmt)),
-	      m_done(false),
-	      m_read_thread(read_thread, std::ref(m_process.child_stdout()),
-	                    std::ref(m_mtx), std::ref(m_queue), std::ref(m_done)),
+	    : m_process("ffmpeg", ffmpeg_args(filename, offs, output_fmt)),
 	      m_msg_thread(Process::generic_pipe,
 	                   std::ref(m_process.child_stderr()), std::ref(m_msgs))
 	{
+		m_process.close_child_stdin();
 	}
 
 	~DecoderImpl()
 	{
-		close();
+		// Kill the process and wait for its completion
 		wait();
 
 		// Join with the read and the messages thread
-		m_read_thread.join();
 		m_msg_thread.join();
 	}
 
 	std::string messages() const { return m_msgs.str(); }
-	void close()
-	{
-		// Close the input stream and read all still available data
-		if (m_input) {
-			m_input = nullptr;
-			m_process.close_child_stdin();
-		}
-	}
 
 	int wait()
 	{
+		// Kill the process by sending SIGINT
+		m_process.signal(2);
+
 		// Wait for the read() method to return zero
 		std::vector<uint8_t> null;
-		while (read(BUF_SIZE_IN, null)) {
+		while (read(4096, null)) {
 			null.clear();
 		};
 
@@ -172,50 +142,16 @@ public:
 
 	size_t read(size_t n_bytes, std::vector<uint8_t> &tar)
 	{
-		uint8_t buf[BUF_SIZE_IN];
-		size_t queue_size = 0;
+		const size_t old_size = tar.size();
+
 		size_t n_bytes_read = 0;
-		while (n_bytes_read < n_bytes) {
-			// Move as many bytes as possible from the read queue to the target
-			// memory region
-			{
-				std::lock_guard<std::mutex> lock(m_mtx);
-
-				size_t count = std::min(m_queue.size(), n_bytes);
-				std::copy(m_queue.begin(), m_queue.begin() + count,
-				          std::back_insert_iterator<std::vector<uint8_t>>(tar));
-				m_queue.erase(m_queue.begin(), m_queue.begin() + count);
-				queue_size = m_queue.size();
-				n_bytes_read += count;
-			}
-
-			// Break once all data has been read from the queue end the read
-			// thread has finished
-			if (queue_size == 0 && m_done) {
-				break;
-			}
-
-			// Feed more data into the decoder if the buffer underruns
-			if (m_input && queue_size < TAR_QUEUE_SIZE) {
-				if (m_input->good()) {
-					m_input->read((char *)buf, BUF_SIZE_IN);
-					if (m_input->gcount() > 0) {
-						m_process.child_stdin().write((char *)buf,
-						                              m_input->gcount());
-					}
-				}
-				if (!m_input->good() || m_input->gcount() < BUF_SIZE_IN) {
-					m_input = nullptr;
-					m_process.close_child_stdin();
-				}
-			}
-
-			// If the number of requested has not yet been reached, wait a
-			// short time until the data has been processed by the decoder
-			if (n_bytes_read < n_bytes) {
-				std::this_thread::sleep_for(std::chrono::milliseconds(20));
-			}
+		auto &is = m_process.child_stdout();
+		if (is.good()) {
+			tar.resize(old_size + n_bytes);
+			is.read((char*)&tar[old_size], n_bytes);
+			n_bytes_read = is.gcount();
 		}
+		tar.resize(old_size + n_bytes_read);
 		return n_bytes_read;
 	}
 };
@@ -224,9 +160,9 @@ public:
  * Class Decoder
  */
 
-Decoder::Decoder(std::unique_ptr<std::istream> input, float offs,
+Decoder::Decoder(const std::string &filename, float offs,
                  const AudioFormat &output_fmt)
-    : m_impl(std::make_unique<DecoderImpl>(std::move(input), offs, output_fmt))
+    : m_impl(std::make_unique<DecoderImpl>(filename, offs, output_fmt))
 {
 }
 

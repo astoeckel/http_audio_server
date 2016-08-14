@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+	<head>
+	</head>
+	<body>
+		<audio></audio>
+		<script type="text/javascript">
+var audio = document.querySelector('audio');
+
+var mimeCodec = 'audio/webm; codecs="opus"';
+if ('MediaSource' in window && MediaSource.isTypeSupported(mimeCodec)) {
+	var mediaSource = new MediaSource;
+	audio.src = URL.createObjectURL(mediaSource);
+	mediaSource.addEventListener('sourceopen', sourceOpen);
+} else {
+	console.error('Unsupported MIME type or codec: ', mimeCodec);
+}
+
+function open_stream(cb) {
+	var xhr = new XMLHttpRequest;
+	xhr.open('get', 'stream/create');
+	xhr.onload = function () {
+		console.log("Opened stream " + xhr.response);
+		cb('stream/' + xhr.response + '/');
+	};
+	xhr.send();
+}
+
+function sourceOpen (_) {
+	//console.log(this.readyState); // open
+	var mediaSource = this;
+	var sourceBuffer = mediaSource.addSourceBuffer(mimeCodec);
+	var url = ""
+	sourceBuffer.mode = "sequence"
+	console.log("Opening stream...");
+
+	sourceBuffer.addEventListener("update", function(ev) {
+		if (audio.paused) {
+			audio.play();
+		}
+		next_chunk();
+	}, false);
+
+	function next_chunk() {
+		fetchAB(url + "advance", function (buf) {
+			console.log("Got buffer of size " + buf.byteLength);
+			if (buf.byteLength > 0) {
+				sourceBuffer.appendBuffer(buf);
+			}
+		});
+	}
+
+	open_stream(function(base_url) {
+		url = base_url
+		next_chunk();
+	});
+};
+
+function fetchAB (url, cb) {
+	var xhr = new XMLHttpRequest;
+	xhr.open('post', url);
+	xhr.responseType = 'arraybuffer';
+	xhr.onload = function () {
+		cb(xhr.response);
+	};
+	xhr.send();
+};
+		</script>
+	</body>
+</html>
