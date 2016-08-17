@@ -11,21 +11,26 @@ This repository contains a proof-of-concept audio streaming server which gapless
 
 ## How to build
 
-This project requires a C++14 compliant compiler, such as GCC 6. An additional compile-time dependency is `libopus`. All other dependencies are included as Git submodule. As runtime dependency, an installation of `ffmpeg` is required. `ffmpeg` is automatically spawned as a background process to decode audio files.
+This project requires a C++14 compliant compiler, such as GCC 6. Additional compile-time dependencies are `libopus`. On Fedora, you can install `libopus` using
+```
+sudo dnf install libopus-devel
+```
+Alternatively compile a recent version from a stable source-code release of `libopus`, which can be found at the [Opus Codec Homepage](https://opus-codec.org/downloads/).
 
-Build using
+All other dependencies ([libwebm](https://github.com/webmproject/libwebm)) are included as Git submodule or directly stored in the repository ([json](https://github.com/nlohmann/json), [mongoose](https://github.com/cesanta/mongoose/)). As runtime dependency, an installation of `ffmpeg` is required. `ffmpeg` is automatically spawned as a background process to decode audio files.
+
+Build `http_audio_server` using
 ```bash
 git clone https://github.com/astoecke/http_audio_server --recursive
 cd http_audio_server && mkdir build && cd build
 cmake ..
 make
 ```
-
-Now start the server with
+and start the server with
 ```bash
 ./http_audio_server
 ```
-and go to http://localhost:4851/ and follow the on-screen instructions.
+You are now ready to go to [http://localhost:4851/](http://localhost:4851/) and follow the on-screen instructions.
 
 ## License
 
