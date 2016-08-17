@@ -11,7 +11,7 @@ This repository contains a proof-of-concept audio streaming server which gapless
 
 ## How to build
 
-This project requires a C++14 compliant compiler, such as GCC 6. Additional compile-time dependencies are `libopus`. On Fedora, you can install `libopus` using
+This project requires a C++14 compliant compiler, such as GCC 6. The only additional compile-time dependency is `libopus`. On Fedora, you can install `libopus` using
 ```
 sudo dnf install libopus-devel
 ```
