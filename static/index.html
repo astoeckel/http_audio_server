@@ -21,6 +21,13 @@
 				padding: 1em;
 			}
 
+			footer {
+				background-color: gray;
+				color: white;
+				font-size: 9pt;
+				padding: 1em;
+			}
+
 			main {
 				padding: 1em;
 			}
@@ -62,19 +69,22 @@
 		<main>
 			<em>Note: This is only a proof-of concept tech demo. Any struggles imposed on you to use this program are fully intentional.</em>
 			<div id="compat">Please enable JavaScript!</div>
-			<h2>Step 1</h2>
+			<h2>Step 1: Create new stream</h2>
 			<div>Click "Create Stream" or enter a valid stream id into the input field. Do not change the value of the input field during playback.</div>
 			<input type="text" id="stream_id"/><button id="create">Create Stream</button>
 
-			<h2>Step 2</h2>
-			<div>Add a list of filenames into the textarea, one filename per line, and click "Add to stream". You can also add new files during playback.</div>
+			<h2>Step 2: Add files to playlist</h2>
+			<div>Add a list of filenames to the textarea, one filename per line, and click "Add to stream". You can also add new files during playback, but not once the stream has ended.</div>
 			<textarea id="filenames"></textarea><button id="add">Add to stream</button>
 
-			<h2>Step 3</h2>
-			<div>Click play to start the playback.</div>
+			<h2>Step 3: Listen and enjoy</h2>
+			<div>Click play to hopefully start playback.</div>
 			<button id="play">Play</button>
 			<audio controls preload="none"></audio>
 		</main>
+		<footer>
+		Copyright 2016 (c) by Andreas Stöckel, licensed under the <a href="https://www.gnu.org/licenses/agpl-3.0">AGPLv3</a>.
+		</footer>
 		<script type="text/javascript">
 "use strict";
 
