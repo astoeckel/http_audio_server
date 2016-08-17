@@ -21,7 +21,7 @@ All other dependencies ([libwebm](https://github.com/webmproject/libwebm)) are i
 
 Build `http_audio_server` using
 ```bash
-git clone https://github.com/astoecke/http_audio_server --recursive
+git clone https://github.com/astoeckel/http_audio_server --recursive
 cd http_audio_server && mkdir build && cd build
 cmake ..
 make
