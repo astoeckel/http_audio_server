@@ -5,8 +5,8 @@ This repository contains a proof-of-concept audio streaming server which gapless
 ## Features
 * **C++ application** which streams audio files via HTTP REST API to a web application
 * **Multiples files per stream** (playlist) with gapless playback
-* **FFmpeg** used to decodes input files (no compile-time dependency)
-* **Opus and WebM** handled by the media source extensions MSE. Encoding and packing is done using low-level libraries directly in the C++ code.
+* **FFmpeg** used to decode input files (no compile-time dependency)
+* **Opus and WebM** handled by the media source extensions (MSE). Encoding and packaging is done using low-level libraries directly in the C++ code
 * **Adaptive bitrate** allows to dynamically change the bitrate during streaming (not yet implemented in the JavaScript client)
 
 ## How to build
