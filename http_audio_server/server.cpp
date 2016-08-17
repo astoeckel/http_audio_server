@@ -17,8 +17,11 @@
  */
 
 #include <lib/mongoose.h>
+#include <lib/json.hpp>
 
 #include <http_audio_server/server.hpp>
+
+using namespace nlohmann;
 
 namespace http_audio_server {
 
@@ -91,6 +94,18 @@ std::ostream &Response::stream()
 	return m_os;
 }
 
+void Response::ok(int code, const std::string &msg)
+{
+	header(code, {{"Content-type", "application/json"}});
+	stream() << std::setw(4) << json{{"status", "ok"}, {"msg", msg}} << std::endl;
+}
+
+void Response::error(int code, const std::string &msg)
+{
+	header(code, {{"Content-type", "application/json"}});
+	stream() << std::setw(4) << json{{"status", "error"}, {"msg", msg}} << std::endl;
+}
+
 Response::~Response()
 {
 	if (m_header_sent) {
@@ -128,21 +143,33 @@ private:
 		// Iterate over the request map to find a suitable handler
 		const std::string method(hm->method.p, hm->method.len);
 		const std::string uri(hm->uri.p, hm->uri.len);
+
+		std::cerr << method << " " << uri << std::endl;
+
 		for (const RequestMapEntry &descr : self.m_request_map) {
-			if (descr.method == method && std::regex_match(uri, descr.regex)) {
+			std::smatch sm;
+			if (descr.method == method &&
+			    std::regex_match(uri, sm, descr.regex)) {
 				Request req{
 				    descr, uri, std::string{hm->body.p, hm->body.len},
-				    parse_query(hm->query_string.p, hm->query_string.len)};
+				    parse_query(hm->query_string.p, hm->query_string.len), sm};
 				Response res(nc);
-				descr.handler(req, res);
+				try {
+					descr.handler(req, res);
+				}
+				catch (std::exception e) {
+					std::cerr
+					    << "Caught exception in event_handler: " << e.what()
+					    << std::endl;
+					Response(nc).error(500, "Internal server error");
+				}
+				return;
 			}
 		}
 
 		// Send a default error response
-		Response res(nc);
-		res.header(404, {{"Content-type", "application/json"}});
-		res.stream() << "\"Requested resource \\\"" << uri
-		             << "\\\" not found\"";
+		Response(nc).error(404, "Requested resource \"" + uri +
+		                            "\" not found for method " + method);
 	}
 
 public:
@@ -155,6 +182,8 @@ public:
 		mg_mgr_init(&m_mgr, this);
 		m_nc = mg_bind(&m_mgr, addr.c_str(), event_handler);
 		mg_set_protocol_http_websocket(m_nc);
+
+		std::cout << "Serving HTTP at " << addr << std::endl;
 	}
 
 	~HTTPServerImpl() { mg_mgr_free(&m_mgr); }

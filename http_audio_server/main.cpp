@@ -20,7 +20,11 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <list>
+#include <random>
 #include <thread>
+
+#include <lib/json.hpp>
 
 #include <http_audio_server/decoder.hpp>
 #include <http_audio_server/encoder.hpp>
@@ -28,6 +32,7 @@
 #include <http_audio_server/server.hpp>
 
 using namespace http_audio_server;
+using namespace nlohmann;
 
 bool cancel = false;
 void signal_handler(int)
@@ -40,80 +45,141 @@ void signal_handler(int)
 
 class Stream {
 private:
-	Decoder m_decoder;
+	std::list<std::tuple<std::string, double, std::shared_ptr<Decoder>>> m_decoders;
 	Encoder m_encoder;
 	size_t m_bytes_tranferred = 0;
 	std::vector<uint8_t> m_buf;
 	size_t m_bitrate;
-	bool done = false;
 
 public:
-	Stream(const std::string &filename, size_t m_bitrate)
-	    : m_decoder(filename),
-	      m_encoder(48000, 2),
-	      m_bitrate(m_bitrate)
+	Stream(size_t m_bitrate) : m_encoder(48000, 2), m_bitrate(m_bitrate) {}
+
+	void append(const std::string &filename, double offs = 0.0)
 	{
+		m_decoders.emplace_back(filename, offs, nullptr);
 	}
 
 	void advance(double seconds, std::ostream &os)
 	{
 		size_t samples = seconds * 48000;
 		size_t n_bytes = samples * 2 * sizeof(float);
-		if (m_decoder.read(n_bytes, m_buf)) {
-			m_encoder.feed((float *)(&m_buf[0]),
-			               m_buf.size() / sizeof(float) / 2, m_bitrate, os);
+		while (n_bytes > 0 && !m_decoders.empty()) {
+			// Lazily create the decoder if it does not exist yet
+			auto &entry = m_decoders.front();
+			const std::string &fn = std::get<0>(entry);
+			const double offs = std::get<1>(entry);
+			std::shared_ptr<Decoder> &dec = std::get<2>(entry);
+			if (!dec) {
+				dec = std::make_shared<Decoder>(fn, offs);
+			}
+
+			// Read the data
+			if (dec->read(n_bytes, m_buf)) {
+				n_bytes -= m_buf.size();
+				m_encoder.feed((float *)(&m_buf[0]),
+				               m_buf.size() / sizeof(float) / 2, m_bitrate, os);
+			}
+
+			// Remove the current decoder if we're at the end of the file
+			if (m_buf.size() < n_bytes) {
+				m_decoders.pop_front();
+			}
+			m_buf.clear();
 		}
-		if (m_buf.size() < n_bytes) {
+		// Finalise the encoder if this stream is done
+		if (m_decoders.empty()) {
 			m_encoder.finalize(m_bitrate, os);
-			done = true;
 		}
-		m_buf.clear();
 	}
 };
 
-int main(int argc, char *argv[])
+static std::string random_string(const int len = 16)
 {
-	if (argc != 2) {
-		std::cerr << "./http_audio_server <FILE>" << std::endl;
-		return 1;
-	}
+	static const char alphanum[] =
+	    "0123456789"
+	    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	    "abcdefghijklmnopqrstuvwxyz";
 
+	std::default_random_engine engine(std::random_device{}());
+	std::uniform_int_distribution<size_t> distr(0, sizeof(alphanum) - 2);
+
+	std::string res(16, ' ');
+	for (int i = 0; i < len; ++i) {
+		res[i] = alphanum[distr(engine)];
+	}
+	return res;
+}
+
+int main()
+{
 	signal(SIGINT, signal_handler);
 
-	std::vector<std::shared_ptr<Stream>> streams;
+	std::unordered_map<std::string, std::shared_ptr<Stream>> streams;
+
+	auto handle_index = [](const Request &, Response &res) {
+		res.header(200, {{"Content-Type", "text/html; charset=utf-8"}});
+		std::ifstream is("../static/index.html");
+		Process::generic_pipe(is, res.stream());
+	};
+
+	auto handle_stream_create = [&](const Request &, Response &res) {
+		std::string stream_id = random_string();
+		streams.emplace(stream_id, std::make_shared<Stream>(196000));
+		res.header(200, {{"Content-Type", "text/plain"}});
+		res.stream() << stream_id << std::endl;
+	};
+
+	auto handle_stream_append = [&](const Request &req, Response &res) {
+		const std::string stream_id = req.matcher[1];
+		auto it = streams.find(stream_id);
+		if (it != streams.end()) {
+			json resource = json::parse(req.body);
+			auto fn = resource.find("filename");
+			if (fn == resource.end()) {
+				res.error(400, "Invalid query");
+				return;
+			}
+			res.ok(200, "Appended file " + fn->get<std::string>());
+			it->second->append(*fn);
+		}
+		else {
+			res.error(404, "Stream id \"" + stream_id + "\" not found");
+		}
+	};
+
+	auto handle_stream_advance = [&](const Request &req, Response &res) {
+		const std::string stream_id = req.matcher[1];
+		auto it = streams.find(stream_id);
+		if (it != streams.end()) {
+			res.header(200, {{"Content-Type", "audio/webm"}});
+			it->second->advance(5.0, res.stream());
+		}
+		else {
+			res.error(404, "Stream id \"" + stream_id + "\" not found");
+		}
+	};
+
+	auto handle_stream_destroy = [&](const Request &req, Response &res) {
+		const std::string stream_id = req.matcher[1];
+		auto it = streams.find(stream_id);
+		if (it != streams.end()) {
+			res.ok(200, {"Stream successfully erased"});
+			streams.erase(it);
+		}
+		else {
+			res.error(404, "Stream id \"" + stream_id + "\" not found");
+		}
+	};
 
 	HTTPServer server(
-	    {RequestMapEntry("GET", "^/(index.html)?$",
-	                     [](const Request &, Response &res) {
-		                     res.header(200, {{"Content-Type",
-		                                       "text/html; charset=utf-8"}});
-		                     std::ifstream is("../static/index.html");
-		                     Process::generic_pipe(is, res.stream());
-		                 }),
-	     RequestMapEntry("GET", "^/stream/create$",
-	                     [&](const Request &, Response &res) {
-		                     streams.emplace_back(
-		                         std::make_shared<Stream>(argv[1], 128000));
-		                     res.header(200, {{"Content-Type", "text/plain"}});
-		                     res.stream() << streams.size() - 1 << std::endl;
-		                 }),
-	     RequestMapEntry(
-	         "POST", "^/stream/[0-9]+/advance$",
-	         [&](const Request &req, Response &res) {
-		         std::regex re("^/stream/([0-9]+)/advance$");
-		         std::smatch sm;
-		         std::regex_match(req.uri, sm, re);
-		         size_t stream_idx = std::stoi(sm[1]);
-		         if (stream_idx < streams.size()) {
-			         res.header(200, {{"Content-Type", "audio/webm"}});
-			         streams[stream_idx]->advance(1.0, res.stream());
-		         }
-		         else {
-			         res.header(404, {{"Content-Type", "application/json"}});
-			         res.stream() << "\"Invalid stream id " << stream_idx
-			                      << "\"";
-		         }
-		     })});
+	    {RequestMapEntry("GET", "^/(index.html)?$", handle_index),
+	     RequestMapEntry("POST", "^/stream/create$", handle_stream_create),
+	     RequestMapEntry("POST", "^/stream/([A-Za-z0-9]+)/append$",
+	                     handle_stream_append),
+	     RequestMapEntry("POST", "^/stream/([A-Za-z0-9]+)/advance$",
+	                     handle_stream_advance),
+	     RequestMapEntry("POST", "^/stream/([A-Za-z0-9]+)/destroy$",
+	                     handle_stream_destroy)});
 
 	while (!cancel) {
 		server.poll(1000);

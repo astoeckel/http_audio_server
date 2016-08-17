@@ -1,69 +1,173 @@
 <!DOCTYPE html>
 <html>
 	<head>
+		<style type="text/css">
+			html {
+				padding: 1em;
+				background-color: silver;
+			}
+
+			body {
+				font-family: Ubuntu, sans-serif;
+				width: 60em;
+				margin: 0 auto;
+				background-color: white;
+				box-shadow: 0 0 10px gray;
+			}
+
+			header {
+				background-color: #204a87;
+				color: #ffffff;
+				padding: 1em;
+			}
+
+			main {
+				padding: 1em;
+			}
+
+			main div {
+				margin: 0.5em 0;
+			}
+
+			div#compat {
+				padding: 1em;
+				text-shadow: 1px 1px black;
+			}
+
+			div#compat.ok {
+				color: white;
+				background-color: #4e9a06;
+			}
+
+			div#compat.fail {
+				color: white;
+				background-color: #a40000;
+			}
+
+			input, textarea, button, audio {
+				font-size: 12pt;
+				width: 100%;
+				display: block;
+				box-sizing: border-box;
+			}
+			textarea {
+				height: 20em;
+			}
+		</style>
 	</head>
 	<body>
-		<audio></audio>
-		<script type="text/javascript">
-var audio = document.querySelector('audio');
+		<header>
+			<h1>HTTP Audio Streaming Server</h1>
+		</header>
+		<main>
+			<em>Note: This is only a proof-of concept tech demo. Any struggles imposed on you to use this program are fully intentional.</em>
+			<div id="compat">Please enable JavaScript!</div>
+			<h2>Step 1</h2>
+			<div>Click "Create Stream" or enter a valid stream id into the input field. Do not change the value of the input field during playback.</div>
+			<input type="text" id="stream_id"/><button id="create">Create Stream</button>
 
-var mimeCodec = 'audio/webm; codecs="opus"';
-if ('MediaSource' in window && MediaSource.isTypeSupported(mimeCodec)) {
-	var mediaSource = new MediaSource;
-	audio.src = URL.createObjectURL(mediaSource);
-	mediaSource.addEventListener('sourceopen', sourceOpen);
-} else {
-	console.error('Unsupported MIME type or codec: ', mimeCodec);
+			<h2>Step 2</h2>
+			<div>Add a list of filenames into the textarea, one filename per line, and click "Add to stream". You can also add new files during playback.</div>
+			<textarea id="filenames"></textarea><button id="add">Add to stream</button>
+
+			<h2>Step 3</h2>
+			<div>Click play to start the playback.</div>
+			<button id="play">Play</button>
+			<audio controls preload="none"></audio>
+		</main>
+		<script type="text/javascript">
+"use strict";
+
+function xhr(method, url, callback, data) {
+	var xhr = new XMLHttpRequest;
+	xhr.open(method, url);
+	xhr.onload = function (ev) {
+		callback(xhr, ev);
+	};
+	xhr.send(data);
 }
 
-function open_stream(cb) {
-	var xhr = new XMLHttpRequest;
-	xhr.open('get', 'stream/create');
-	xhr.onload = function () {
-		console.log("Opened stream " + xhr.response);
-		cb('stream/' + xhr.response + '/');
-	};
-	xhr.send();
+function sid() {
+	return document.querySelector("#stream_id").value;
+}
+
+var audio = document.querySelector('audio');
+
+var btn_create = document.querySelector('#create').addEventListener("click", function () {
+	xhr("post", "stream/create", function (xhr, ev) {
+		document.querySelector("#stream_id").value = xhr.response;
+	});
+});
+
+var btn_add = document.querySelector('#add').addEventListener("click", function () {
+	function add_first() {
+		var ml = document.querySelector("#filenames");
+		var files = ml.value.split("\n");
+		if (files.length >= 0 && files[0].trim() !== "") {
+			xhr("post", "stream/" + sid() + "/append", function () {
+				add_first();
+			}, JSON.stringify({"filename": files.shift().trim()}));
+			ml.value = files.join("\n");
+		}
+	}
+	add_first();
+});
+
+var btn_play = document.querySelector('#play').addEventListener("click", function () {
+	var mediaSource = new MediaSource();
+	mediaSource.addEventListener('sourceopen', sourceOpen);
+	audio.src = URL.createObjectURL(mediaSource);
+	audio.play();
+});
+var lbl_compat = document.querySelector('#compat')
+
+var mimeCodec = 'audio/webm; codecs="opus"';
+
+if ('MediaSource' in window && MediaSource.isTypeSupported(mimeCodec)) {
+	lbl_compat.innerHTML = "Your browser supports MSE with " + mimeCodec;
+	lbl_compat.className = "ok";
+} else {
+	lbl_compat.innerHTML = "Your browser does not support MSE with " + mimeCodec + ". This program will not work.";
+	lbl_compat.className = "fail";
 }
 
 function sourceOpen (_) {
-	//console.log(this.readyState); // open
-	var mediaSource = this;
+	var mediaSource = this
 	var sourceBuffer = mediaSource.addSourceBuffer(mimeCodec);
-	var url = ""
 	sourceBuffer.mode = "sequence"
 	console.log("Opening stream...");
 
-	sourceBuffer.addEventListener("update", function(ev) {
-		if (audio.paused) {
-			audio.play();
-		}
-		next_chunk();
-	}, false);
+	var buffer_ival = 5.0
+	var buffer_ts = 0.0;
+	var buffer_size = 10.0;
+
+	function fetchAB (url, cb) {
+		var xhr = new XMLHttpRequest;
+		xhr.open('post', url);
+		xhr.responseType = 'arraybuffer';
+		xhr.onload = function () {
+			cb(xhr.response);
+		};
+		xhr.send();
+	};
 
 	function next_chunk() {
-		fetchAB(url + "advance", function (buf) {
-			console.log("Got buffer of size " + buf.byteLength);
+		fetchAB("stream/" + sid() + "/advance", function (buf) {
 			if (buf.byteLength > 0) {
 				sourceBuffer.appendBuffer(buf);
+				buffer_ts += buffer_ival
+				function check_next_chunk() {
+					if (buffer_ts - audio.currentTime < buffer_size) {
+						next_chunk();
+					} else {
+						window.setTimeout(check_next_chunk, 1000);
+					}
+				}
+				check_next_chunk();
 			}
 		});
 	}
-
-	open_stream(function(base_url) {
-		url = base_url
-		next_chunk();
-	});
-};
-
-function fetchAB (url, cb) {
-	var xhr = new XMLHttpRequest;
-	xhr.open('post', url);
-	xhr.responseType = 'arraybuffer';
-	xhr.onload = function () {
-		cb(xhr.response);
-	};
-	xhr.send();
+	next_chunk();
 };
 		</script>
 	</body>

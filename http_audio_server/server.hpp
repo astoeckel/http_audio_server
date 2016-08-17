@@ -37,6 +37,7 @@ struct Request {
 	std::string uri;
 	std::string body;
 	std::unordered_map<std::string, std::string> get;
+	std::smatch matcher;
 };
 
 class ChunkedHTTPResponseBuf : public std::streambuf {
@@ -69,6 +70,9 @@ public:
 	void header(int code, const Headers &headers = Headers{});
 	std::ostream &stream();
 	void stream(const std::string &filename);
+
+	void ok(int code, const std::string &msg);
+	void error(int code, const std::string &msg);
 };
 
 using RequestHandler =
