@@ -16,6 +16,7 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdlib.h>
 #include <lib/mongoose.h>
 #include <lib/json.hpp>
 
@@ -125,8 +126,9 @@ private:
 	mg_connection *m_nc;
 
 	static std::unordered_map<std::string, std::string> parse_query(
-	    const char *p, size_t len)
+	    const char *, size_t)
 	{
+		// TODO
 		return std::unordered_map<std::string, std::string>{};
 	}
 
@@ -181,9 +183,13 @@ public:
 
 		mg_mgr_init(&m_mgr, this);
 		m_nc = mg_bind(&m_mgr, addr.c_str(), event_handler);
-		mg_set_protocol_http_websocket(m_nc);
-
-		std::cout << "Serving HTTP at " << addr << std::endl;
+		if (m_nc) {
+			mg_set_protocol_http_websocket(m_nc);
+			std::cout << "Serving HTTP at " << addr << ", press CTRL+C to exit"<< std::endl;
+		} else {
+			std::cout << "Error, cannot bind to " << addr << std::endl;
+			exit(1);
+		}
 	}
 
 	~HTTPServerImpl() { mg_mgr_free(&m_mgr); }

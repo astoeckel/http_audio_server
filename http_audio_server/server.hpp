@@ -97,7 +97,7 @@ private:
 	std::unique_ptr<HTTPServerImpl> m_impl;
 
 public:
-	HTTPServer(const std::vector<RequestMapEntry> &request_map, const std::string &host = "localhost", size_t port = 8080);
+	HTTPServer(const std::vector<RequestMapEntry> &request_map, const std::string &host = "localhost", size_t port = 4851);
 	~HTTPServer();
 	void poll(size_t timeout);
 };

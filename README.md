@@ -16,11 +16,16 @@ This project requires a C++14 compliant compiler, such as GCC 6. An additional c
 Build using
 ```bash
 git clone https://github.com/astoecke/http_audio_server --recursive
-cd http_audio_server; mkdir build; cd build
+cd http_audio_server && mkdir build && cd build
 cmake ..
+make
+```
+
+Now start the server with
+```bash
 ./http_audio_server
 ```
-Go to http://localhost:8080/ and follow the on-screen instructions.
+and go to http://localhost:4851/ and follow the on-screen instructions.
 
 ## License
 
