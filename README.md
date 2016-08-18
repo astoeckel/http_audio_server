@@ -24,7 +24,7 @@ Build `http_audio_server` using
 git clone https://github.com/astoeckel/http_audio_server --recursive
 cd http_audio_server && mkdir build && cd build
 cmake ..
-make
+make http_audio_server
 ```
 and start the server with
 ```bash
