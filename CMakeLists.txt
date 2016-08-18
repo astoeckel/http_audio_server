@@ -61,6 +61,7 @@ add_library(http_audio_server_core
 	http_audio_server/json
 	http_audio_server/process
 	http_audio_server/server
+	http_audio_server/string_utils
 	lib/mongoose
 )
 target_include_directories(http_audio_server_core

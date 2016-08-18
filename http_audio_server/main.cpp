@@ -29,6 +29,7 @@
 #include <http_audio_server/json.hpp>
 #include <http_audio_server/process.hpp>
 #include <http_audio_server/server.hpp>
+#include <http_audio_server/string_utils.hpp>
 
 using namespace http_audio_server;
 
@@ -121,7 +122,7 @@ int main()
 	};
 
 	auto handle_stream_create = [&](const Request &, Response &res) {
-		std::string stream_id = random_string();
+		std::string stream_id = random_alphanum_string();
 		streams.emplace(stream_id, std::make_shared<Stream>(196000));
 		res.header(200, {{"Content-Type", "text/plain"}});
 		res.stream() << stream_id << std::endl;

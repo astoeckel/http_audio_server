@@ -17,9 +17,11 @@
  */
 
 #include <stdlib.h>
+
 #include <lib/mongoose.h>
 
 #include <http_audio_server/json.hpp>
+#include <http_audio_server/logger.hpp>
 #include <http_audio_server/server.hpp>
 
 namespace http_audio_server {
@@ -185,9 +187,12 @@ public:
 		m_nc = mg_bind(&m_mgr, addr.c_str(), event_handler);
 		if (m_nc) {
 			mg_set_protocol_http_websocket(m_nc);
-			std::cout << "Serving HTTP at " << addr << ", press CTRL+C to exit"<< std::endl;
-		} else {
-			std::cout << "Error, cannot bind to " << addr << std::endl;
+			global_logger().info(
+			    "server", "Serving HTTP at " + addr + ", press CTRL+C to exit");
+		}
+		else {
+			global_logger().fatal_error("server",
+			                            "Error, cannot bind to " + addr);
 			exit(1);
 		}
 	}
