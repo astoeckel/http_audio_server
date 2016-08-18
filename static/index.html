@@ -60,6 +60,36 @@
 			textarea {
 				height: 20em;
 			}
+
+			#info {
+				padding: 1em;
+				box-shadow: 0 0 10px silver;
+			}
+
+			#info #title {
+				font-size: 120%;
+				display: block;
+			}
+
+			#info #artist {
+				font-style: italic;
+				display: block;
+			}
+
+			#info #album {
+				display: block;
+				clear: left;
+			}
+
+			#info #duration {
+				color: silver;
+			}
+
+			#info #filename, #info #date, #info #format {
+				font-size: 75%;
+				color: silver;
+				display: block;
+			}
 		</style>
 	</head>
 	<body>
@@ -80,6 +110,16 @@
 			<h2>Step 3: Listen and enjoy</h2>
 			<div>Click play to hopefully start playback.</div>
 			<button id="play">Play</button>
+			<div id="info">
+				<span id="title"></span>
+				<span id="artist"></span>
+				<span id="album"></span>
+				<span id="position"></span>/<span id="duration"></span>
+				<span id="filename"></span>
+				<span id="date"></span>
+				<span id="format"></span>
+				<input id="trackbar" type="range" min="0" max="1000" value="0"></input>
+			</div>
 			<audio controls preload="none"></audio>
 		</main>
 		<footer>
@@ -134,12 +174,15 @@ var lbl_compat = document.querySelector('#compat')
 var mimeCodec = 'audio/webm; codecs="opus"';
 
 if ('MediaSource' in window && MediaSource.isTypeSupported(mimeCodec)) {
-	lbl_compat.innerHTML = "Your browser supports MSE with " + mimeCodec;
+	lbl_compat.textContent = "Your browser supports MSE with " + mimeCodec;
 	lbl_compat.className = "ok";
 } else {
-	lbl_compat.innerHTML = "Your browser does not support MSE with " + mimeCodec + ". This program will not work.";
+	lbl_compat.textContent = "Your browser does not support MSE with " + mimeCodec + ". This program will not work.";
 	lbl_compat.className = "fail";
 }
+
+var metadata = []
+var track_start = 0.0;
 
 function sourceOpen (_) {
 	var mediaSource = this
@@ -151,6 +194,9 @@ function sourceOpen (_) {
 	var buffer_ts = 0.0;
 	var buffer_size = 10.0;
 
+	metadata = [];
+	track_start = 0.0;
+
 	function fetchAB (url, cb) {
 		var xhr = new XMLHttpRequest;
 		xhr.open('post', url);
@@ -161,10 +207,35 @@ function sourceOpen (_) {
 		xhr.send();
 	};
 
+	function array_buf_to_string(buf) {
+		return String.fromCharCode.apply(null, new Uint8Array(buf));
+	}
+
+	function parse_segments(buf) {
+		var res = {};
+		var cur = 0;
+		while (cur + 8 < buf.byteLength) {
+			// Read the segment name
+			var name = array_buf_to_string(buf.slice(cur, cur + 4));
+
+			// Read the segment size and the actual data
+			var size = (new Uint32Array(buf.slice(cur + 4, cur + 8)))[0];
+			var data = buf.slice(cur + 8, cur + 8 + size);
+
+			// Advance the cursor position
+			cur = cur + size + 8;
+
+			// Store the segment name in the result
+			res[name] = data;
+		}
+		return res;
+	}
+
 	function next_chunk() {
 		fetchAB("stream/" + sid() + "/advance", function (buf) {
-			if (buf.byteLength > 0) {
-				sourceBuffer.appendBuffer(buf);
+			var segments = parse_segments(buf);
+			if ("data" in segments) {
+				sourceBuffer.appendBuffer(segments["data"]);
 				buffer_ts += buffer_ival
 				function check_next_chunk() {
 					if (buffer_ts - audio.currentTime < buffer_size) {
@@ -175,10 +246,59 @@ function sourceOpen (_) {
 				}
 				check_next_chunk();
 			}
+			if ("meta" in segments) {
+				metadata = metadata.concat(JSON.parse(array_buf_to_string(segments["meta"])));
+			}
 		});
 	}
 	next_chunk();
 };
+
+function update_info() {
+	function hhmmss(ts) {
+		ts = ts / 3600.0;
+		var h = Math.floor(ts);
+		ts = (ts - h) * 60.0;
+		var m = Math.floor(ts);
+		ts = (ts - m) * 60.0;
+		var s = Math.floor(ts);
+		return ('0' + h).slice( - 2) + ':' + ('0' + m).slice( - 2) + ':' + ('0' + s).slice( - 2);
+	}
+
+	// Update the current time
+	var pos = audio.currentTime;
+	document.querySelector("#position").textContent = hhmmss(pos - track_start);
+
+	// Update the trackbar
+	var tb = document.querySelector("#trackbar");
+	tb.value = Math.round((pos - track_start) * 1000);
+
+	// Update the track info whenever track boundaries are passed
+	if (metadata.length > 0 && pos >= metadata[0]["start"]) {
+		var lbl_filename = document.querySelector("#filename");
+		var lbl_title = document.querySelector("#title");
+		var lbl_artist = document.querySelector("#artist");
+		var lbl_album = document.querySelector("#album");
+		var lbl_duration = document.querySelector("#duration");
+		var lbl_date = document.querySelector("#date");
+		var lbl_format = document.querySelector("#format");
+
+		var data = metadata.shift();
+		lbl_filename.textContent = data["filename"];
+		lbl_title.textContent = data["meta"]["title"];
+		lbl_artist.textContent = data["meta"]["artist"];
+		lbl_album.textContent = data["meta"]["album"];
+		lbl_duration.textContent = hhmmss(data["meta"]["duration"]);
+		tb.max = Math.round(data["meta"]["duration"] * 1000);
+		lbl_date.textContent = data["meta"]["date"];
+		lbl_format.textContent = data["meta"]["format"];
+
+		track_start = data["start"];
+	}
+}
+window.setInterval(update_info, 100);
+
+
 		</script>
 	</body>
 </html>

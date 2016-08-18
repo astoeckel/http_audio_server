@@ -22,12 +22,14 @@
 #include <iostream>
 #include <list>
 #include <random>
+#include <sstream>
 #include <thread>
 
 #include <http_audio_server/decoder.hpp>
 #include <http_audio_server/encoder.hpp>
 #include <http_audio_server/json.hpp>
 #include <http_audio_server/logger.hpp>
+#include <http_audio_server/metadata.hpp>
 #include <http_audio_server/process.hpp>
 #include <http_audio_server/server.hpp>
 #include <http_audio_server/string_utils.hpp>
@@ -45,15 +47,27 @@ void signal_handler(int)
 
 class Stream {
 private:
-	std::list<std::tuple<std::string, double, std::shared_ptr<Decoder>>> m_decoders;
+	std::list<std::tuple<std::string, double, std::shared_ptr<Decoder>>>
+	    m_decoders;
 	Encoder m_encoder;
 	size_t m_bytes_tranferred = 0;
+	size_t m_n_samples = 0;
 	std::vector<uint8_t> m_buf;
 	size_t m_bitrate;
 
+	static std::ostringstream::pos_type size_of_stream(
+	    const std::ostringstream &ss)
+	{
+		std::streambuf *buf = ss.rdbuf();
+		std::ostringstream::pos_type original =
+		    buf->pubseekoff(0, ss.cur, ss.out);
+		std::ostringstream::pos_type end = buf->pubseekoff(0, ss.end, ss.out);
+		buf->pubseekpos(original, ss.out);
+		return end;
+	}
+
 public:
 	Stream(size_t m_bitrate) : m_encoder(48000, 2), m_bitrate(m_bitrate) {}
-
 	void append(const std::string &filename, double offs = 0.0)
 	{
 		m_decoders.emplace_back(filename, offs, nullptr);
@@ -61,8 +75,11 @@ public:
 
 	void advance(double seconds, std::ostream &os)
 	{
+		std::vector<json> metadata;
 		size_t samples = seconds * 48000;
 		size_t n_bytes = samples * 2 * sizeof(float);
+
+		std::ostringstream os_buf_data;
 		while (n_bytes > 0 && !m_decoders.empty()) {
 			// Lazily create the decoder if it does not exist yet
 			auto &entry = m_decoders.front();
@@ -71,13 +88,20 @@ public:
 			std::shared_ptr<Decoder> &dec = std::get<2>(entry);
 			if (!dec) {
 				dec = std::make_shared<Decoder>(fn, offs);
+				metadata.emplace_back(json{
+				    {"start", double(m_n_samples) / 48000.0},
+				    {"filename", fn},
+				    {"meta", metadata_from_file(fn).to_json()},
+				});
 			}
 
 			// Read the data
 			if (dec->read(n_bytes, m_buf)) {
+				const size_t n_samples_read = m_buf.size() / sizeof(float) / 2;
 				n_bytes -= m_buf.size();
-				m_encoder.feed((float *)(&m_buf[0]),
-				               m_buf.size() / sizeof(float) / 2, m_bitrate, os);
+				m_encoder.feed((float *)(&m_buf[0]), n_samples_read, m_bitrate,
+				               os_buf_data);
+				m_n_samples += n_samples_read;
 			}
 
 			// Remove the current decoder if we're at the end of the file
@@ -88,27 +112,23 @@ public:
 		}
 		// Finalise the encoder if this stream is done
 		if (m_decoders.empty()) {
-			m_encoder.finalize(m_bitrate, os);
+			m_encoder.finalize(m_bitrate, os_buf_data);
 		}
+
+		// Dump the metadata segment and its size
+		const std::string smeta = json(metadata).dump();
+		const uint32_t smeta_size = smeta.size();
+		os << "meta";
+		os.write((char *)&smeta_size, sizeof(smeta_size));
+		os << smeta;
+
+		// Dump the data segment and its size
+		const uint32_t data_size = size_of_stream(os_buf_data);
+		os << "data";
+		os.write((char *)&data_size, sizeof(data_size));
+		os << os_buf_data.str();
 	}
 };
-
-static std::string random_string(const int len = 16)
-{
-	static const char alphanum[] =
-	    "0123456789"
-	    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	    "abcdefghijklmnopqrstuvwxyz";
-
-	std::default_random_engine engine(std::random_device{}());
-	std::uniform_int_distribution<size_t> distr(0, sizeof(alphanum) - 2);
-
-	std::string res(16, ' ');
-	for (int i = 0; i < len; ++i) {
-		res[i] = alphanum[distr(engine)];
-	}
-	return res;
-}
 
 int main()
 {

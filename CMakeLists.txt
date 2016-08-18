@@ -60,6 +60,7 @@ add_library(http_audio_server_core
 	http_audio_server/encoder
 	http_audio_server/json
 	http_audio_server/logger
+	http_audio_server/metadata
 	http_audio_server/process
 	http_audio_server/server
 	http_audio_server/string_utils
