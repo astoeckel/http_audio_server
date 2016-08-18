@@ -22,8 +22,6 @@
 #include <http_audio_server/json.hpp>
 #include <http_audio_server/server.hpp>
 
-using namespace nlohmann;
-
 namespace http_audio_server {
 
 /*

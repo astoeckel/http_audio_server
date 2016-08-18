@@ -31,7 +31,6 @@
 #include <http_audio_server/server.hpp>
 
 using namespace http_audio_server;
-using namespace nlohmann;
 
 bool cancel = false;
 void signal_handler(int)
