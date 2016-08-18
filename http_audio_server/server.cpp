@@ -98,13 +98,15 @@ std::ostream &Response::stream()
 void Response::ok(int code, const std::string &msg)
 {
 	header(code, {{"Content-type", "application/json"}});
-	stream() << std::setw(4) << json{{"status", "ok"}, {"msg", msg}} << std::endl;
+	stream() << std::setw(4) << json{{"status", "ok"}, {"msg", msg}}
+	         << std::endl;
 }
 
 void Response::error(int code, const std::string &msg)
 {
 	header(code, {{"Content-type", "application/json"}});
-	stream() << std::setw(4) << json{{"status", "error"}, {"msg", msg}} << std::endl;
+	stream() << std::setw(4) << json{{"status", "error"}, {"msg", msg}}
+	         << std::endl;
 }
 
 Response::~Response()
