@@ -18,8 +18,8 @@
 
 #include <stdlib.h>
 #include <lib/mongoose.h>
-#include <lib/json.hpp>
 
+#include <http_audio_server/json.hpp>
 #include <http_audio_server/server.hpp>
 
 using namespace nlohmann;

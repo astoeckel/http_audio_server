@@ -24,10 +24,9 @@
 #include <random>
 #include <thread>
 
-#include <lib/json.hpp>
-
 #include <http_audio_server/decoder.hpp>
 #include <http_audio_server/encoder.hpp>
+#include <http_audio_server/json.hpp>
 #include <http_audio_server/process.hpp>
 #include <http_audio_server/server.hpp>
 

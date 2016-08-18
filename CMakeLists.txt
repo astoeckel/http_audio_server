@@ -58,6 +58,7 @@ include_directories(
 add_library(http_audio_server_core
 	http_audio_server/decoder
 	http_audio_server/encoder
+	http_audio_server/json
 	http_audio_server/process
 	http_audio_server/server
 	lib/mongoose
