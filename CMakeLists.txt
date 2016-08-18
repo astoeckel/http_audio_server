@@ -59,9 +59,11 @@ add_library(http_audio_server_core
 	http_audio_server/decoder
 	http_audio_server/encoder
 	http_audio_server/json
+	http_audio_server/logger
 	http_audio_server/process
 	http_audio_server/server
 	http_audio_server/string_utils
+	http_audio_server/terminal
 	lib/mongoose
 )
 target_include_directories(http_audio_server_core

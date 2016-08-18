@@ -27,6 +27,7 @@
 #include <http_audio_server/decoder.hpp>
 #include <http_audio_server/encoder.hpp>
 #include <http_audio_server/json.hpp>
+#include <http_audio_server/logger.hpp>
 #include <http_audio_server/process.hpp>
 #include <http_audio_server/server.hpp>
 #include <http_audio_server/string_utils.hpp>
@@ -112,6 +113,22 @@ static std::string random_string(const int len = 16)
 int main()
 {
 	signal(SIGINT, signal_handler);
+
+	// Make sure ffmpeg and ffprobe are found
+	if (std::get<0>(Process::exec("ffmpeg", {"-version"})) != 0) {
+		global_logger().fatal_error(
+		    "main",
+		    "ffmpeg binary not found. Please make sure a reasonably recent "
+		    "version of ffmpeg is installed.");
+		return 1;
+	}
+	if (std::get<0>(Process::exec("ffprobe", {"-version"})) != 0) {
+		global_logger().fatal_error(
+		    "main",
+		    "ffprobe binary not found. Please make sure a reasonably recent "
+		    "version of ffmpeg is installed.");
+		return 1;
+	}
 
 	std::unordered_map<std::string, std::shared_ptr<Stream>> streams;
 
