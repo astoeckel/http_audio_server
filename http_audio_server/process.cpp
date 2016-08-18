@@ -106,6 +106,14 @@ public:
 			    "pipes");
 		}
 
+		// Assemble the arguments array
+		std::vector<char const *> argv(args.size() + 2);
+		argv[0] = cmd.c_str();
+		for (size_t i = 0; i < args.size(); i++) {
+			argv[i + 1] = args[i].c_str();
+		}
+		argv[args.size() + 1] = nullptr;
+
 		m_pid = fork();  // Split the current process into two
 		if (m_pid == 0) {
 			// This is the child process -- redirect the child I/O to the pipe
@@ -114,14 +122,6 @@ public:
 				dup2(m_child_stderr_pipe[1], STDERR_FILENO);
 				dup2(m_child_stdin_pipe[0], STDIN_FILENO);
 			}
-
-			// Assemble the arguments array
-			std::vector<char const *> argv(args.size() + 2);
-			argv[0] = cmd.c_str();
-			for (size_t i = 0; i < args.size(); i++) {
-				argv[i + 1] = args[i].c_str();
-			}
-			argv[args.size() + 1] = nullptr;
 
 			// Launch the subprocessm, on success, there is no return from
 			// execvp
