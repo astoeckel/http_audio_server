@@ -215,7 +215,7 @@ int main()
 	     RequestMapEntry("POST", "^/stream/([A-Za-z0-9]+)/advance$",
 	                     handle_stream_advance),
 	     RequestMapEntry("POST", "^/stream/([A-Za-z0-9]+)/destroy$",
-	                     handle_stream_destroy)});
+	                     handle_stream_destroy)}, "0.0.0.0");
 
 	while (!cancel) {
 		server.poll(1000);
