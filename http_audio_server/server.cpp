@@ -161,7 +161,7 @@ private:
 				try {
 					descr.handler(req, res);
 				}
-				catch (std::exception e) {
+				catch (std::exception &e) {
 					std::cerr
 					    << "Caught exception in event_handler: " << e.what()
 					    << std::endl;
