@@ -74,7 +74,7 @@ target_include_directories(http_audio_server_core
 )
 target_link_libraries(http_audio_server_core
 	pthread
-	mkvmuxer
+	webm
 	${OPUS_LIBRARIES}
 )
 
