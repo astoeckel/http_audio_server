@@ -60,12 +60,12 @@ class EncoderImpl {
 private:
 	static constexpr size_t BUF_SIZE = 1 << 16;
 
-	size_t m_rate;
+	uint64_t m_rate;
 	size_t m_n_channels;
 	size_t m_frame_size;
 	std::vector<float> m_buf;
 	size_t m_buf_ptr;
-	size_t m_granule = 0;
+	uint64_t m_granule = 0;
 	bool m_done = false;
 
 	BufferMkvWriter m_mkv_writer;
