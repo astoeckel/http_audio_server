@@ -162,7 +162,7 @@ public:
 				int size = opus_encode_float(m_enc, &m_buf[0], m_frame_size,
 				                             buf, BUF_SIZE);
 				if (size > 0) {
-					uint64_t ts = (m_granule * 1000 * 1000 * 1000) / m_rate;
+					uint64_t ts = (m_granule * 1000ULL * 1000ULL * 1000ULL) / m_rate;
 					m_mkv_segment.AddFrame(buf, size, m_mkv_track_id, ts, true);
 				}
 				m_buf_ptr = 0;
